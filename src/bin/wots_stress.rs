@@ -11,10 +11,10 @@ fn main() {
     let mut rng = thread_rng();
     let mut failures = 0usize;
     for round in 0..rounds {
-        let (mut id, mut seed) = ([0u8; N], [0u8; N]);
-        rng.fill_bytes(&mut id);
+        let (mut id_mt, mut seed) = ([0u8; N], [0u8; N]);
+        rng.fill_bytes(&mut id_mt);
         rng.fill_bytes(&mut seed);
-        let pp = PubParams::new(&id);
+        let pp = PubParams::new(&id_mt);
         let t = WotsTweak { r: rng.gen_range(1..8), idx: rng.gen() };
         let mut msg = vec![0u8; rng.gen_range(0..128)];
         rng.fill_bytes(&mut msg);

@@ -42,10 +42,10 @@ fn main() {
     let (e, kappa) = (261, 123);
 
     let mut rng = thread_rng();
-    let (mut id, mut master) = ([0u8; N], [0u8; N]);
-    rng.fill_bytes(&mut id);
+    let (mut id_mt, mut master) = ([0u8; N], [0u8; N]);
+    rng.fill_bytes(&mut id_mt);
     rng.fill_bytes(&mut master);
-    let params = HyperParams::new(h, d, LotsParams::new(e, kappa), id, master).expect("invalid (h, d)");
+    let params = HyperParams::new(h, d, LotsParams::new(e, kappa), id_mt, master).expect("invalid (h, d)");
     let lh = params.layer_height();
     println!("h={h}, d={d} (subtree height {lh}), e={e}, kappa={kappa}, leaf={leaf}");
 
