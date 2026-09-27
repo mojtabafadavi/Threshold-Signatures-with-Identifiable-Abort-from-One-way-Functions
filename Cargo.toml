@@ -1,0 +1,29 @@
+[package]
+name = "tlots"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "tlots"
+path = "src/lib.rs"
+
+[[bin]]
+name = "bench"
+path = "src/bin/bench.rs"
+
+[[bin]]
+name = "wots_stress"
+path = "src/bin/wots_stress.rs"
+
+[[bin]]
+name = "ntt_bench"
+path = "src/bin/ntt_bench.rs"
+
+[dependencies]
+sha2 = "0.10"
+rand = "0.8"
+num-bigint = "0.4"
+num-traits = "0.2"
+
+[profile.release]
+opt-level = 3
