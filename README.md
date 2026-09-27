@@ -7,7 +7,7 @@ one-way functions.
 Any `T` of `N` participants jointly produce a signature under one long-term
 public key; fewer than `T` cannot. When a round fails, the participants that
 submitted malformed contributions are named, dropped, and a valid signature
-is recovered from the honest remainder — without a second signing round and
+is recovered from the honest remainder, without a second signing round and
 without enlarging the signature.
 
 * **Assumption.** One-way functions only: no lattice, code or isogeny
@@ -62,7 +62,7 @@ and appendices by number.
   set for `λ = 256`.
 * Every tweak is a fixed-width encoding behind a type tag, and the public
   parameters are pairwise distinct byte strings, so no two uses in the
-  scheme share a `(P, t)` pair — the `DIST` condition the SM-TCR and
+  scheme share a `(P, t)` pair, which is the `DIST` condition the SM-TCR and
   SM-DSPR reductions need. `hashing`'s tests check this.
 * Merkle leaf positions and every tweak are derived from the signature's
   own key index, never read from an authentication path; out-of-range
@@ -120,9 +120,11 @@ pair; `h` and `d` set the hypertree's height and layer count, with `d | h`.
 use tlots::hypertree::{self, Dealer, HyperParams};
 use tlots::lots_cff::{self, LotsParams};
 
-let params = HyperParams::new(8, 2, LotsParams::new(261, 123), id, master_seed)?;
+let params = HyperParams::new(8, 2, LotsParams::new(261, 123), id_mt, master_seed)?;
 let mut dealer = Dealer::key_gen(params);
-// dealer.pk, dealer.id are the long-term public key pk = (root, id).
+// dealer.pk is Root and dealer.id is id_MT: pk^B = (Root, id_MT).
+// The struct field is spelled `id`; it holds the paper's id_MT, never a
+// participant identifier.
 ```
 
 **Issue a leaf.** Each call hands out the next unused LOTS keypair with the
@@ -187,37 +189,42 @@ scheme share a `(P, t)` pair.
 
 Equation (1) of §5 fixes the convention `H_X(t, m) = H(TLOTS.pk‖X, t, m)`,
 and Algorithm 4 instantiates the LOTS with `prm = (pk^B‖"LOTS", pk^B‖"msg")`,
-keyed on the long-term public key `pk^B = (Root, id)`, serialized here as
-`Root ‖ id`:
+keyed on the long-term public key `pk^B = (Root, id_MT)`, serialized here as
+`Root ‖ id_MT`. Below, `id_MT` is Algorithm 1's random Merkle parameter (the
+field `PubParams::id` in the code) and `index` is the global index of a LOTS
+key, which is also its tweak. Neither is the participant identifier, which
+§5 writes `id` and which appears here only as `j`.
 
 | object | public parameter | tweak |
 |---|---|---|
-| LOTS key with global index `c` | `P_LOTS = pk‖"LOTS"` | `y_i = H(P_LOTS, c‖i, x_i)` |
-| LOTS message hash | `P_msg = pk‖"msg"` | `B_msg = g(H(P_msg, c, msg))` |
-| share commitment | `P_vk = pk‖"vk"` | `π_cjk = H(P_vk, c‖j‖k, sh_cj,k)` |
-| participant verification key | `P_vk = pk‖"vk"` | `vk_cj = H(P_vk, c‖j, (π_cjk)_k)` |
-| WOTS+ key at position `idx` of layer `r` | `P_WOTS = id‖"WOTS"` | chain step at height `j` of chain `i`: `r‖idx‖i‖j` |
-| WOTS+ message hash | `P_Wmsg = id‖"WMSG"` | `D = H(P_Wmsg, r‖idx, m)` |
-| WOTS+ secret values | secret seed `rho` | `x_i = PRF(rho, r‖idx‖i)` |
-| WOTS+ tree `tau` of layer `r` | `id‖r‖tau` | leaf `0‖i`, node `1‖j‖i` |
+| LOTS key with global index `index` | `P_LOTS = pk^B‖"LOTS"` | `y_k = H(P_LOTS, index‖k, x_k)` |
+| LOTS message hash | `P_msg = pk^B‖"msg"` | `B_msg = g_λ(H(P_msg, index, msg))` |
+| share commitment | `P_vk = pk^B‖"vk"` | `π_{index,j,k} = H(P_vk, index‖j‖k, sh_{index,j,k})` |
+| participant `j`'s verification key | `P_vk = pk^B‖"vk"` | `vk_{index,j} = H(P_vk, index‖j, (π_{index,j,k})_k)` |
+| WOTS+ key at position `idx` of layer `r` | `P_WOTS = id_MT‖"WOTS"` | chain step at height `b` of chain `a`: `r‖idx‖a‖b` |
+| WOTS+ message hash | `P_Wmsg = id_MT‖"WMSG"` | `D = H(P_Wmsg, r‖idx, m)` |
+| WOTS+ secret values | secret seed `rho` | `x_a = PRF(rho, r‖idx‖a)` |
+| WOTS+ tree `tau` of layer `r` (Algorithm 1's `⌊index/L⌋`) | `id_MT‖r‖tau` | leaf `0‖i`, node `1‖j‖i` |
 | salted LOTS tree of a bunch | `id_msg` | leaf `0‖i` (on `salt‖pk`), node `1‖j‖i` |
 
-The hypertree's own parameters cannot be keyed on `pk` without circularity,
-since `Root` is the output of the top Merkle tree over WOTS+ public keys and
-everything hashed while computing `Root` can therefore depend only on `id`.
-Algorithm 1 keys those on `id` (`MerkleTree(id‖r‖tau, ...)`), as does this
-implementation. `PubParams::new(id)` builds that half of the parameters;
+The hypertree's own parameters cannot be keyed on `pk^B` without
+circularity, since `Root` is the output of the top Merkle tree over WOTS+
+public keys and everything hashed while computing `Root` can therefore
+depend only on `id_MT`. Algorithm 1 keys those on `id_MT`
+(`MerkleTree(id_MT‖r‖tau, ...)`), as does this implementation.
+`PubParams::new(id_MT)` builds that half of the parameters;
 `Dealer::key_gen` calls `bind_root` once `BKeyGen` produces the root, which
-re-keys `P_LOTS`, `P_msg` and `P_vk` onto `pk = (Root, id)` before any LOTS
-key is generated. A verifier rebuilds the same parameters from the published
-`pk` with `PubParams::with_pk`. Under `d = 1` the LOTS tree is itself the top
-tree, and the LOTS parameters remain keyed on `id` on both sides.
+re-keys `P_LOTS`, `P_msg` and `P_vk` onto `pk^B = (Root, id_MT)` before any
+LOTS key is generated. A verifier rebuilds the same parameters from the
+published `pk^B` with `PubParams::with_pk`. Under `d = 1` the LOTS tree is
+itself the top tree, and the LOTS parameters remain keyed on `id_MT` on both
+sides.
 
 Merkle tweaks are Appendix A.3's `0‖i` and `1‖j‖i`, with node levels `j`
 counted from the root (root = 0). No Merkle tree shares a public parameter
 with an OTS or verification-key hash: Merkle parameters are 32 B (`id_msg`)
-or 44 B (`id‖r‖tau`), the others 35–36 B (`id‖label`) or 66–68 B
-(`pk‖label`). The tests in `hashing` check this. The paper names the LOTS
+or 44 B (`id_MT‖r‖tau`), the others 35–36 B (`id_MT‖label`) or 66–68 B
+(`pk^B‖label`). The tests in `hashing` check this. The paper names the LOTS
 and WOTS+ message parameters both `P_msg`; since the two are keyed on
 different values, the code labels them `"msg"` and `"WMSG"`.
 
@@ -234,8 +241,8 @@ its address `(layer, subtree_index, position)`, via
 may be chosen at run time subject only to `d | h`, including `h = 64`.
 
 What bounds the cost is that a WOTS+ public key does not depend on the
-message it will eventually sign. Building a subtree's Merkle root — needed
-for an authentication path, or as the child root that the layer above signs —
+message it will eventually sign. Building a subtree's Merkle root, whether
+for an authentication path or as the child root that the layer above signs,
 therefore takes `O(2^{h/d})` public-key derivations at that subtree, with no
 recursion into child subtrees. Only the leaf on the signing path
 additionally needs a signature, computed once its child's root is known.
@@ -264,19 +271,19 @@ subtree was rebuilt or reused on a given call.
 
 Code layers run `0` (top) to `d-1` (bottom, LOTS). Algorithm 1 numbers the
 WOTS+ layers `r = 1` (lowest) to `r = d-1` (top), so code layer `l` is
-`r = d-1-l`. The top tree has parameter `id‖(d-1)‖0`, matching `BKeyGen`'s
-`id‖h‖0` with `h = d-1`.
+`r = d-1-l`. The top tree has parameter `id_MT‖(d-1)‖0`, matching
+`BKeyGen`'s `id_MT‖h‖0` with `h = d-1`.
 
 ### Bottom layer (layer d−1)
 
-Each leaf is a CFF-Lamport key whose tweak is its global index `c`, and
+Each leaf is a CFF-Lamport key whose tweak is its global index `index`, and
 whose secret is Shamir-shared among N participants (`lots_cff::dist`). The
 bottom Merkle tree is salted and hashed under a per-bunch `id_msg`. The
 WOTS+ key above the bunch signs `m_0 = id_msg ‖ MT_0.Root` (Algorithm 1),
 which authenticates `id_msg`. Under `d = 1` there is no WOTS+ layer, so the
-bottom tree uses `id` and `verify` requires `id_msg = id`. A signature
-carries the global index `c`; Algorithm 1's `counter` and the leaf's
-position within its bunch are `c / L` and `c % L`, both derived from `c`
+bottom tree uses `id_MT` and `verify` requires `id_msg = id_MT`. A signature
+carries the global index; Algorithm 1's `counter` and the leaf's position
+within its bunch are `index / L` and `index % L`, both derived from it
 rather than read from an authentication path.
 
 ### Upper layers (0..d−2)
@@ -292,12 +299,12 @@ checksum are used.
 
 `hypertree::part_sign` and `hypertree::combine` take the public parameters
 and the LOTS key's global index. Combined partial signatures give the LOTS
-signature `sigma^L`; `combine` attaches `pk_cmpl = (y_i)_{i ∉ B_msg}`, which
+signature `σ^L`; `combine` attaches `pk_cmpl = (y_k)_{k ∉ B_msg}`, which
 `TLOTS.Verify` accepts in place of the full LOTS public key, together with
-the certificate chain, giving `Sigma = (sigma^L, pk_cmpl, index, cert)`.
+the certificate chain, giving `σ = (σ^L, pk_cmpl, index, Sig)`.
 
-`hypertree::verify(params, id, root, msg, sig)` derives the public
-parameters from `pk = (root, id)`, recomputes the LOTS public key with
+`hypertree::verify(params, id_MT, root, msg, sig)` derives the public
+parameters from `pk^B = (Root, id_MT)`, recomputes the LOTS public key with
 `LDerivePK` and the salted bottom root, then per layer the WOTS+ public key
 with `WDerivePK` and the tree root with `DeriveRoot`. All tweaks and Merkle
 leaf positions come from `sig.index`, never from the authentication paths;
@@ -306,12 +313,12 @@ out-of-range indices and malformed lengths are rejected.
 ### Identifiable abort (§3, §5, Algorithm 4)
 
 Besides the share bundles, `lots_cff::dist` returns the public
-verification-key vector `vk = (vk_cj)_{j ∈ [N]}`, where `vk_cj` commits to
-each of participant `j`'s `e` shares of LOTS key `c` through the per-share
-commitments `π_cjk`. If a round of partial signatures fails to reconstruct,
+verification-key vector `vk = (vk_{index,j})_{j ∈ [N]}`, where `vk_{index,j}`
+commits to each of participant `j`'s `e` shares of the LOTS key at `index`
+through the per-share commitments `π_{index,j,k}`. If a round of partial signatures fails to reconstruct,
 each participant publishes `lots_cff::sig_proof`, the commitments to the
 `e − κ` shares it did not reveal, and `lots_cff::verify_partial` recomputes
-`vk_cj` from the revealed shares together with the proof. An honest
+`vk_{index,j}` from the revealed shares together with the proof. An honest
 participant passes this check; one that submitted a malformed partial
 signature does not, and is named, dropped, and the remaining honest shares
 recombined. Neither `vk` nor the proof is part of a signature: `vk` is
@@ -337,8 +344,8 @@ comparison and as a reference. The cost of `Dist` consequently depends on
 ### The cost of Reconstruct
 
 The Lagrange coefficients `lambda_{i,S}` of §2.4 depend only on the signer
-set `S`, not on which coordinate of the shared vector is being recovered —
-as Algorithm 2's `ShamirReconVec` writes it, `L ← Σ_i λ_{i,S}(x) L_i`, with
+set `S`, not on which coordinate of the shared vector is being recovered.
+As Algorithm 2's `ShamirReconVec` writes it, `L ← Σ_i λ_{i,S}(x) L_i`, with
 one coefficient per participant applied to that participant's whole share
 vector. `shamir::lagrange_coeffs` therefore computes them once per quorum
 and `lots_cff::combine` reuses them across all `κ·r` coordinates, for the
@@ -439,10 +446,10 @@ One-time and independent of `(T, N)`.
 
 | Stage | Cost |
 |---|---|
-| `Dealer::key_gen` — top-layer subtree, `2^16` WOTS+ keys | 30.8 s |
-| `Dealer::resolve_leaf` — one leaf's chain, uncached | 99.4 s |
-| `Dealer::issue_next_leaf` — first call, three layers not cached by `key_gen` | 71.5 s |
-| `Dealer::issue_next_leaf` — subsequent calls from the same bunch | 0.95 ms |
+| `Dealer::key_gen`: top-layer subtree, `2^16` WOTS+ keys | 30.8 s |
+| `Dealer::resolve_leaf`: one leaf's chain, uncached | 99.4 s |
+| `Dealer::issue_next_leaf`: first call, three layers not cached by `key_gen` | 71.5 s |
+| `Dealer::issue_next_leaf`: subsequent calls from the same bunch | 0.95 ms |
 
 Within `resolve_leaf`, key derivation dominates and tree building is a
 rounding error:
@@ -454,8 +461,8 @@ rounding error:
 | WOTS+ `r=2` | 28,531.4 ms | 493.8 ms |
 | WOTS+ `r=3` | 27,839.1 ms | 497.4 ms |
 
-The LOTS bunch is cheaper to derive than a WOTS+ layer — `e = 261` hashes
-per leaf against `ℓ · (2^w − 1) = 67 · 15 = 1,005` chain steps — but its
+The LOTS bunch is cheaper to derive than a WOTS+ layer, at `e = 261` hashes
+per leaf against `ℓ · (2^w − 1) = 67 · 15 = 1,005` chain steps, but its
 Merkle tree costs about four times as much, since its leaves are the `e·32`
 = 8,352-byte concatenated LOTS public keys rather than `ℓ·32` = 2,144-byte
 WOTS+ ones.
@@ -491,7 +498,7 @@ in. `|pk| = 64 B` and `|σ| = 16,904 B` for every row, and every signature
 verified. Run-to-run variation on this machine is a few percent: three runs
 gave 337.0, 350.1 and 351.5 ms for `Dist` at `N = 1000`.
 
-† The vk figure at `N = 50` is a measurement artifact — it exceeds the
+† The vk figure at `N = 50` is a measurement artifact: it exceeds the
 `Dist` call it is meant to account for part of, which cannot be right.
 Interpolating the neighbouring rows puts the true value near 10 ms.
 
@@ -539,9 +546,9 @@ flow is a unit test in both `lots_cff` and `hypertree`.
 | `src/merkle.rs` | §2.2, Appendix A.3 | tweaked Merkle trees, salted at the bottom layer; `derive_root` takes the leaf position explicitly |
 | `src/hypertree.rs` | §2.3 (Algorithm 1), §3 | seed-derived hypertree: `Dealer::key_gen`, `resolve_leaf`, `issue_next_leaf`, `part_sign`, `combine`, `verify` |
 | `src/bin/bench.rs` | §8 | benchmark harness; `h` and `d` configurable at the command line |
-| `src/bin/ntt_bench.rs` | — | timing comparison of `share_naive` and `share_ntt` |
-| `src/bin/wots_stress.rs` | — | WOTS+ fuzz check over random parameters, tweaks and messages |
-| `examples/simple.rs` | — | the end-to-end walkthrough above |
+| `src/bin/ntt_bench.rs` | n/a | timing comparison of `share_naive` and `share_ntt` |
+| `src/bin/wots_stress.rs` | n/a | WOTS+ fuzz check over random parameters, tweaks and messages |
+| `examples/simple.rs` | n/a | the end-to-end walkthrough above |
 
 ## Testing and reproducing the benchmarks
 
